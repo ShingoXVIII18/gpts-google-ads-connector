@@ -1,0 +1,4 @@
+Flask
+google-ads
+PyYAML
+gunicorn
