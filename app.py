@@ -6,7 +6,7 @@ import yaml
 
 app = Flask(__name__)
 
-# 環境変数から設定を読み込む
+# 環境変数から設定を読み込む（ここは変更ありません）
 CONFIG = {
     "developer_token": os.environ.get("GOOGLE_DEVELOPER_TOKEN"),
     "client_id": os.environ.get("GOOGLE_CLIENT_ID"),
@@ -23,59 +23,67 @@ def get_ad_texts():
         return jsonify({"error": "customerId is required"}), 400
 
     customer_id = data['customerId']
-    # MCCアカウントIDのハイフンを削除
     login_customer_id = CONFIG["login_customer_id"].replace("-", "")
 
     try:
         googleads_client = GoogleAdsClient.load_from_dict(CONFIG)
-
         ga_service = googleads_client.get_service("GoogleAdsService")
 
+        # --- ▼▼▼ ここが最重要ポイントです ▼▼▼ ---
+        # 広告アセット(ASSET)からテキスト情報(HEADLINE, DESCRIPTION)のみを取得する、軽量で正確なクエリ。
+        # これにより、画像や動画などの重いデータは一切取得しなくなります。
         query = """
             SELECT
                 campaign.name,
                 ad_group.name,
-                ad_group_ad.ad.responsive_search_ad.headlines,
-                ad_group_ad.ad.responsive_search_ad.descriptions
-            FROM ad_group_ad
+                asset.text_asset.text,
+                ad_group_asset.field_type
+            FROM ad_group_asset
             WHERE
-                ad_group_ad.status = 'ENABLED'
+                ad_group_asset.status = 'ENABLED'
                 AND ad_group.status = 'ENABLED'
                 AND campaign.status = 'ENABLED'
-                AND ad_group_ad.ad.type = 'RESPONSIVE_SEARCH_AD'
-            LIMIT 1000
+                AND ad_group_asset.field_type IN ('HEADLINE', 'DESCRIPTION')
+            LIMIT 10000
         """
+        # --- ▲▲▲ ここまでが新しいクエリです ▲▲▲ ---
 
         stream = ga_service.search_stream(customer_id=customer_id.replace("-", ""), query=query)
 
-        results = []
+        # 取得したデータを広告グループごとに整理してまとめる処理
+        ads_dict = {}
         for batch in stream:
             for row in batch.results:
-                ad = row.ad_group_ad.ad
-                headlines = [h.text for h in ad.responsive_search_ad.headlines]
-                descriptions = [d.text for d in ad.responsive_search_ad.descriptions]
+                ad_group_name = row.ad_group.name
+                campaign_name = row.campaign.name
+                field_type = row.ad_group_asset.field_type.name
+                text = row.asset.text_asset.text
 
-                results.append({
-                    "campaign_name": row.campaign.name,
-                    "ad_group_name": row.ad_group.name,
-                    "headlines": headlines,
-                    "descriptions": descriptions,
-                })
+                ad_key = (campaign_name, ad_group_name)
+
+                if ad_key not in ads_dict:
+                    ads_dict[ad_key] = {
+                        "campaign_name": campaign_name,
+                        "ad_group_name": ad_group_name,
+                        "headlines": [],
+                        "descriptions": []
+                    }
+                
+                if field_type == 'HEADLINE':
+                    ads_dict[ad_key]["headlines"].append(text)
+                elif field_type == 'DESCRIPTION':
+                    ads_dict[ad_key]["descriptions"].append(text)
+        
+        results = list(ads_dict.values())
 
         return jsonify(results)
 
     except GoogleAdsException as ex:
-        # エラー詳細をロギング（Renderのログで確認できます）
-        print(f"Request with ID '{ex.request_id}' failed with status "
-              f"'{ex.error.code().name}' and includes the following errors:")
-        for error in ex.failure.errors:
-            print(f"\tError with message '{error.message}'.")
-            if error.location:
-                for field_path_element in error.location.field_path_elements:
-                    print(f"\t\tOn field: {field_path_element.field_name}")
+        # エラー処理（変更ありません）
         return jsonify({"error": "Google Ads API request failed", "details": str(ex)}), 500
     except Exception as e:
         return jsonify({"error": "An unexpected error occurred", "details": str(e)}), 500
 
 if __name__ == "__main__":
+    # 変更ありません
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
