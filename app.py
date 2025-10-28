@@ -29,15 +29,17 @@ def get_ad_texts():
         googleads_client = GoogleAdsClient.load_from_dict(CONFIG)
         ga_service = googleads_client.get_service("GoogleAdsService")
 
-        # --- ▼▼▼ ここが最重要ポイントです ▼▼▼ ---
-        # 広告アセット(ASSET)からテキスト情報(HEADLINE, DESCRIPTION)のみを取得する、軽量で正確なクエリ。
-        # これにより、画像や動画などの重いデータは一切取得しなくなります。
+        # --- ▼▼▼ ここからクエリを修正 ▼▼▼ ---
         query = """
             SELECT
                 campaign.name,
                 ad_group.name,
                 asset.text_asset.text,
-                ad_group_asset.field_type
+                ad_group_asset.field_type,
+                # --- ▼▼▼ ここに不足していた2行を追加します ▼▼▼ ---
+                campaign.status,
+                ad_group.status
+                # --- ▲▲▲ ここまでが追加分です ▲▲▲ ---
             FROM ad_group_asset
             WHERE
                 ad_group_asset.status = 'ENABLED'
@@ -46,11 +48,11 @@ def get_ad_texts():
                 AND ad_group_asset.field_type IN ('HEADLINE', 'DESCRIPTION')
             LIMIT 10000
         """
-        # --- ▲▲▲ ここまでが新しいクエリです ▲▲▲ ---
+        # --- ▲▲▲ ここまでが修正されたクエリです ▲▲▲ ---
 
         stream = ga_service.search_stream(customer_id=customer_id.replace("-", ""), query=query)
 
-        # 取得したデータを広告グループごとに整理してまとめる処理
+        # 取得したデータを広告グループごとに整理してまとめる処理（変更ありません）
         ads_dict = {}
         for batch in stream:
             for row in batch.results:
